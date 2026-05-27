@@ -1,0 +1,1 @@
+"""Mail client project package."""

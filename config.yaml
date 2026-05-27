@@ -1,0 +1,13 @@
+smtp_host: "127.0.0.1"
+smtp_port: 2525
+pop3_host: "127.0.0.1"
+pop3_port: 1110
+use_ssl: false
+database_path: "data/email.db"
+mailbox_root: "data/mailboxes"
+spam_model_path: "data/models/spam_model.joblib"
+default_users:
+  - username: "alice@example.com"
+    password: "alice123"
+  - username: "bob@example.com"
+    password: "bob123"

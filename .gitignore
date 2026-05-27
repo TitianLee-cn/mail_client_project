@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+data/mailboxes/*
+!data/mailboxes/.gitkeep
+
+data/models/*
+!data/models/.gitkeep
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets / local config
+.env
+.env.*
+config.local.yaml
