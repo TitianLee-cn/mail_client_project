@@ -1,6 +1,7 @@
 # 基于经典协议的邮件客户端开发与机器学习反垃圾机制
 
-本项目是计算机网络课程大作业骨架，目标是用 Python 构建一个最小可运行的邮件系统 pipeline：
+---
+## 李雨桐 - Skeleton
 
 用户写邮件 -> MIME 构造 -> SMTP Client 发送 -> SMTP Server 接收 -> 保存 `.eml` -> SQLite 保存元数据 -> POP3 Client 拉取 -> MIME Parser 解析 -> Spam Filter 判断 -> inbox/spam 分类 -> 发件人按 `mail_id` 撤回。
 
