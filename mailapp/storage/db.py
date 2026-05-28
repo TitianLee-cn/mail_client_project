@@ -14,11 +14,21 @@ def _db_path():
 
 
 def get_connection():
-    """Open a SQLite connection using config.yaml."""
+    """Open a SQLite connection using config.yaml.
+
+    The server may receive multiple SMTP/POP3 requests at the same time.
+    Therefore, a longer SQLite timeout and WAL mode are enabled to make
+    concurrent read/write operations more stable.
+    """
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+
+    conn = sqlite3.connect(path, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+
     return conn
 
 
