@@ -1,5 +1,7 @@
 smtp_host: "127.0.0.1"
 smtp_port: 2525
+smtp_auth_required: true
+smtp_auth_require_tls: false
 pop3_host: "127.0.0.1"
 pop3_port: 1110
 use_ssl: false

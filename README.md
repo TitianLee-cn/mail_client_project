@@ -324,9 +324,17 @@ CLI 菜单包括：
 
 `mailapp/protocols/ssl_utils.py` 已预留 SSL/TLS context 与 socket 包装函数。默认配置 `use_ssl: false`，后续可增加证书配置并在 SMTP/POP3 服务中启用。
 
+## SMTP AUTH 说明
+
+SMTP Server 通过 `aiosmtpd` 的 `authenticator` 钩子接入 `mailapp.auth.user_store.verify_user`，支持 `AUTH PLAIN` 与 `AUTH LOGIN`。相关配置：
+
+- `smtp_auth_required`（默认 `true`）：强制客户端在 `MAIL FROM` 之前完成 AUTH。
+- `smtp_auth_require_tls`（默认 `false`）：是否要求先 `STARTTLS` 再 AUTH，演示环境默认关闭。
+
+`SMTPHandler.handle_DATA` 会校验已认证用户与 `MAIL FROM` 一致，避免简单的发件人伪造。
+
 ## TODO
 
-- 为 SMTP Server 增加 AUTH 支持。
 - 为 POP3 Server 补齐更完整的 RFC 1939 行结束、状态机和并发压力测试。
 - 用真实垃圾邮件数据集训练 TF-IDF + Naive Bayes 或 SVM。
 - 增加附件保存后的展示与下载流程。

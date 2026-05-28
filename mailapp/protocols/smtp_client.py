@@ -2,6 +2,7 @@
 
 import smtplib
 
+from mailapp.common.exceptions import AuthenticationError
 from mailapp.config import get_config
 from mailapp.mime.mime_builder import build_email_with_attachments, build_text_email
 
@@ -18,12 +19,20 @@ def connect_smtp_server(host=None, port=None, use_ssl=None):
 
 
 def login_smtp(server, username, password):
-    """Try SMTP AUTH; local demo server may not support it."""
+    """Perform SMTP AUTH against the server.
+
+    Raises AuthenticationError when the server advertises AUTH but the
+    supplied credentials are rejected. When the server does not advertise
+    AUTH (e.g. ``smtp_auth_required: false`` in config), returns False so
+    callers can proceed with an unauthenticated session.
+    """
+    server.ehlo_or_helo_if_needed()
+    if not server.has_extn("auth"):
+        return False
     try:
         server.login(username, password)
-    except smtplib.SMTPException:
-        # TODO: enable AUTH in the SMTP server for stricter demos.
-        return False
+    except smtplib.SMTPAuthenticationError as exc:
+        raise AuthenticationError(f"SMTP AUTH rejected: {exc.smtp_error.decode(errors='replace')}") from exc
     return True
 
 
