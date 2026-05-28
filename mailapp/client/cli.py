@@ -58,8 +58,9 @@ def handle_list_spam():
 
 
 def handle_read_email():
+    username = input("Username: ").strip()
     mail_id = input("mail_id: ").strip()
-    data = display_email(mail_id)
+    data = display_email(mail_id, username)
     print(data)
 
 

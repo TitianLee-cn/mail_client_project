@@ -6,7 +6,13 @@ from mailapp.protocols.pop3_client import fetch_all_messages
 from mailapp.protocols.smtp_client import send_email
 from mailapp.recall.recall_service import request_recall
 from mailapp.spam.classifier import is_spam
-from mailapp.storage.mail_store import get_email_by_mail_id, get_email_raw_content, list_user_emails, mark_email_as_spam
+from mailapp.storage.mail_store import (
+    get_email_by_mail_id,
+    get_email_raw_content,
+    list_user_emails,
+    mark_email_as_spam,
+    mark_email_as_read,
+)
 
 
 def compose_email(sender, recipients, subject, body, attachments=None):
@@ -43,12 +49,23 @@ def receive_email_workflow(username, password):
     return summaries
 
 
-def display_email(mail_id):
-    """Return display fields for one email, including recall notice."""
+def display_email(mail_id, username=None):
+    """Return display fields for one email, including recall notice.
+
+    If username is provided, mark the recipient copy as read.
+    """
     email = get_email_by_mail_id(mail_id)
+
     if email["status"] == "recalled":
+        if username:
+            mark_email_as_read(mail_id, username)
         return {"mail_id": mail_id, "status": "recalled", "body": "This email has been recalled."}
+
     msg = parse_eml_bytes(get_email_raw_content(mail_id))
+
+    if username:
+        mark_email_as_read(mail_id, username)
+
     return {
         "mail_id": mail_id,
         "status": email["status"],

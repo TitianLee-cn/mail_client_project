@@ -128,7 +128,13 @@ def get_email_raw_content(mail_id):
             return fallback.read_bytes()
     raise MailNotFoundError(f"Email content not found: {mail_id}")
 
-
+def mark_email_as_read(mail_id, username):
+    """Mark a recipient copy as read."""
+    execute_query(
+        "UPDATE recipients SET read_status = 1 WHERE mail_id = ? AND recipient = ?",
+        (mail_id, username),
+    )
+    
 def mark_email_as_deleted(mail_id, username):
     """Mark a recipient copy deleted."""
     execute_query(
