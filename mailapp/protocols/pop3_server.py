@@ -76,20 +76,20 @@ class POP3Handler(socketserver.StreamRequestHandler):
             self._send(f"{index} {len(get_email_raw_content(row['mail_id']))}")
         self._send(".")
 
-def handle_RETR(self, message_index):
-    messages = self._messages()
-    try:
-        row = messages[int(message_index) - 1]
-    except (ValueError, IndexError):
-        self._send("-ERR no such message")
-        return
+    def handle_RETR(self, message_index):
+        messages = self._messages()
+        try:
+            row = messages[int(message_index) - 1]
+        except (ValueError, IndexError):
+            self._send("-ERR no such message")
+            return
 
-    raw = get_email_raw_content(row["mail_id"])
-    self._send(f"+OK {len(raw)} octets")
-    self.wfile.write(raw.replace(b"\n", b"\r\n"))
-    self.wfile.write(b"\r\n.\r\n")
+        raw = get_email_raw_content(row["mail_id"])
+        self._send(f"+OK {len(raw)} octets")
+        self.wfile.write(raw.replace(b"\n", b"\r\n"))
+        self.wfile.write(b"\r\n.\r\n")
 
-    mark_email_as_read(row["mail_id"], self.username)
+        mark_email_as_read(row["mail_id"], self.username)
 
     def handle_DELE(self, message_index):
         messages = self._messages()
