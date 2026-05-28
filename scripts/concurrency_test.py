@@ -1,7 +1,9 @@
+import argparse
 import concurrent.futures
 import smtplib
 import sqlite3
 import time
+import traceback
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -11,82 +13,246 @@ SMTP_PORT = 2525
 
 DB_PATH = Path("data/email.db")
 
-SENDER = "alice@example.com"
-RECIPIENT = "bob@example.com"
+DEFAULT_SENDER = "alice@example.com"
+DEFAULT_RECIPIENT = "bob@example.com"
 
 
-def send_one(index: int, batch_id: str):
-    subject = f"concurrency test {batch_id} #{index}"
+def send_one(index: int, batch_id: str, sender: str, recipient: str, smtp_host: str, smtp_port: int):
+    """Simulate one SMTP client sending one email."""
+    subject = f"concurrency test {batch_id} #{index:03d}"
     body = f"This is concurrent email number {index}."
 
     msg = EmailMessage()
-    msg["From"] = SENDER
-    msg["To"] = RECIPIENT
+    msg["From"] = sender
+    msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content(body)
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+    start = time.perf_counter()
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
         server.send_message(msg)
 
-    return subject
+    end = time.perf_counter()
+
+    return {
+        "index": index,
+        "subject": subject,
+        "latency": end - start,
+    }
 
 
-def count_emails_in_db(batch_id: str):
+def query_database(batch_id: str, recipient: str):
+    """Check how many test emails were stored in SQLite."""
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
     try:
-        count = conn.execute(
-            "SELECT COUNT(*) FROM emails WHERE subject LIKE ?",
+        email_count = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM emails
+            WHERE subject LIKE ?
+            """,
             (f"concurrency test {batch_id}%",),
-        ).fetchone()[0]
-        return count
+        ).fetchone()["count"]
+
+        recipient_count = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM recipients
+            JOIN emails USING(mail_id)
+            WHERE emails.subject LIKE ?
+              AND recipients.recipient = ?
+            """,
+            (f"concurrency test {batch_id}%", recipient),
+        ).fetchone()["count"]
+
+        recent_rows = conn.execute(
+            """
+            SELECT emails.mail_id,
+                   emails.subject,
+                   emails.sender,
+                   recipients.recipient,
+                   recipients.folder,
+                   recipients.read_status,
+                   recipients.deleted
+            FROM emails
+            JOIN recipients USING(mail_id)
+            WHERE emails.subject LIKE ?
+            ORDER BY emails.id DESC
+            LIMIT 5
+            """,
+            (f"concurrency test {batch_id}%",),
+        ).fetchall()
+
+        return email_count, recipient_count, recent_rows
+
     finally:
         conn.close()
 
 
+def ask_client_count(default: int = 10) -> int:
+    """Ask user for concurrent client count when it is not provided by command line."""
+    raw = input(f"Enter number of concurrent clients [{default}]: ").strip()
+
+    if raw == "":
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError("Client count must be an integer.")
+
+    if value <= 0:
+        raise ValueError("Client count must be greater than 0.")
+
+    return value
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="SMTP concurrency test for the simulated mail server."
+    )
+
+    parser.add_argument(
+        "-c",
+        "--clients",
+        type=int,
+        default=None,
+        help="Number of concurrent SMTP clients. If omitted, the script will ask interactively.",
+    )
+
+    parser.add_argument(
+        "--sender",
+        type=str,
+        default=DEFAULT_SENDER,
+        help=f"Sender email address. Default: {DEFAULT_SENDER}",
+    )
+
+    parser.add_argument(
+        "--recipient",
+        type=str,
+        default=DEFAULT_RECIPIENT,
+        help=f"Recipient email address. Default: {DEFAULT_RECIPIENT}",
+    )
+
+    parser.add_argument(
+        "--smtp-host",
+        type=str,
+        default=SMTP_HOST,
+        help=f"SMTP host. Default: {SMTP_HOST}",
+    )
+
+    parser.add_argument(
+        "--smtp-port",
+        type=int,
+        default=SMTP_PORT,
+        help=f"SMTP port. Default: {SMTP_PORT}",
+    )
+
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    if args.clients is None:
+        client_count = ask_client_count(default=10)
+    else:
+        client_count = args.clients
+
+    if client_count <= 0:
+        raise ValueError("Client count must be greater than 0.")
+
     batch_id = str(int(time.time()))
-    client_count = 10
 
-    print(f"[INFO] Starting concurrency test with {client_count} clients")
-    print(f"[INFO] Batch id: {batch_id}")
+    print("========== SMTP Concurrency Test ==========")
+    print(f"Batch ID       : {batch_id}")
+    print(f"SMTP server    : {args.smtp_host}:{args.smtp_port}")
+    print(f"Client count   : {client_count}")
+    print(f"Sender         : {args.sender}")
+    print(f"Recipient      : {args.recipient}")
+    print()
 
-    subjects = []
-    errors = []
+    start_all = time.perf_counter()
+
+    successes = []
+    failures = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=client_count) as executor:
         futures = [
-            executor.submit(send_one, i, batch_id)
+            executor.submit(
+                send_one,
+                i,
+                batch_id,
+                args.sender,
+                args.recipient,
+                args.smtp_host,
+                args.smtp_port,
+            )
             for i in range(1, client_count + 1)
         ]
 
         for future in concurrent.futures.as_completed(futures):
             try:
-                subject = future.result()
-                subjects.append(subject)
-                print(f"[OK] Sent: {subject}")
+                result = future.result()
+                successes.append(result)
+                print(f"[OK] #{result['index']:03d} sent in {result['latency']:.3f}s")
             except Exception as exc:
-                errors.append(exc)
-                print(f"[ERROR] {exc}")
+                failures.append(exc)
+                print("[ERROR]", repr(exc))
+                traceback.print_exc()
 
-    time.sleep(1)
+    end_all = time.perf_counter()
+    elapsed = end_all - start_all
 
-    db_count = count_emails_in_db(batch_id)
+    time.sleep(1.0)
 
-    print("\n========== Concurrency Test Result ==========")
-    print(f"Expected sent emails : {client_count}")
-    print(f"Successful sends     : {len(subjects)}")
-    print(f"Errors               : {len(errors)}")
-    print(f"Emails found in DB   : {db_count}")
+    email_count, recipient_count, recent_rows = query_database(batch_id, args.recipient)
 
-    if errors:
-        raise RuntimeError("Some SMTP clients failed")
+    latencies = [x["latency"] for x in successes]
+    avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
+    min_latency = min(latencies) if latencies else 0.0
+    max_latency = max(latencies) if latencies else 0.0
+    throughput = len(successes) / elapsed if elapsed > 0 else 0.0
 
-    if db_count != client_count:
+    print()
+    print("========== Concurrency Test Result ==========")
+    print(f"Expected emails       : {client_count}")
+    print(f"Successful sends      : {len(successes)}")
+    print(f"Failed sends          : {len(failures)}")
+    print(f"Emails found in DB    : {email_count}")
+    print(f"Recipients in DB      : {recipient_count}")
+    print(f"Total elapsed time    : {elapsed:.3f}s")
+    print(f"Throughput            : {throughput:.2f} emails/s")
+    print(f"Average send latency  : {avg_latency:.3f}s")
+    print(f"Min send latency      : {min_latency:.3f}s")
+    print(f"Max send latency      : {max_latency:.3f}s")
+
+    print()
+    print("Recent stored rows:")
+    for row in recent_rows:
+        print(dict(row))
+
+    print()
+
+    if failures:
+        raise RuntimeError("Concurrency test failed: some clients failed to send emails.")
+
+    if email_count != client_count:
         raise RuntimeError(
-            f"Database count mismatch: expected {client_count}, got {db_count}"
+            f"Concurrency test failed: expected {client_count} emails in emails table, "
+            f"but found {email_count}."
         )
 
-    print("\nALL CONCURRENCY TESTS PASSED.")
+    if recipient_count != client_count:
+        raise RuntimeError(
+            f"Concurrency test failed: expected {client_count} recipient records, "
+            f"but found {recipient_count}."
+        )
+
+    print("ALL CONCURRENCY TESTS PASSED.")
 
 
 if __name__ == "__main__":
