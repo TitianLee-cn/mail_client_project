@@ -7,14 +7,15 @@
 
 ## 已实现的基础功能
 
-- SMTP 邮件发送：`smtplib` 客户端。
+- SMTP 邮件发送：`smtplib` 客户端，支持纯文本、HTML、多附件和 SMTP AUTH。
 - SMTP Server 模拟接收：`aiosmtpd` handler 接收入站邮件。
-- POP3 邮件接收：`poplib` 客户端。
+- POP3 邮件接收：`poplib` 客户端，接收后可保存本地 `.eml` 并提取 HTML/附件。
 - 最小 POP3 Server：`socketserver` 支持 USER、PASS、STAT、LIST、RETR、DELE、QUIT。
 - MIME 邮件构造和解析：支持纯文本、HTML 接口、附件接口和 `.eml` 解析。
 - 用户登录认证接口：SQLite 用户表，密码用 SHA-256 hash。
 - SQLite 邮件元数据存储：保存邮件、收件人、状态。
 - `.eml` 文件保存：按用户和文件夹保存 inbox、spam、sent、recalled。
+- 客户端演示交互：支持邮件编号读取、可撤回邮件列表、TLS 配置展示和友好错误提示。
 
 ## 已实现的扩展功能
 
@@ -54,6 +55,39 @@ python run_client.py
 - `alice@example.com` / `alice123`
 - `bob@example.com` / `bob123`
 
+### 客户端菜单说明
+
+启动 `python run_client.py` 后，命令行菜单包括：
+
+- `1. Send Email`：发送邮件。可选择纯文本或 HTML；正文支持多行输入，以单独一行 `.` 结束；附件路径用英文逗号分隔。发送成功后会同时显示客户端 MIME ID、标准 `Message-ID` 和服务端生成的 `server mail_id`，其中 `server mail_id` 用于撤回。
+- `2. Receive Email via POP3`：通过 POP3 拉取当前 inbox 邮件。接收时会保存本地 `.eml`，并提取 HTML 正文和附件到 `data/client_downloads/<user>/` 下。
+- `3. List Inbox` / `4. List Spam`：列出对应文件夹邮件。列表会显示 `001`、`002` 这样的编号以及真实 `mail_id`。
+- `5. Read Email`：读取邮件内容。可输入真实 `mail_id`，也可输入 inbox 编号，例如 `01`、`001` 或 `2`。读取操作只显示内容，不会重复生成 HTML/附件副本。
+- `6. Recall Email`：撤回邮件。这里应输入服务端生成的 `server mail_id`。
+- `7. Show TLS Settings`：显示当前 SMTP/POP3 客户端使用的安全模式，例如 `plain`、`starttls` 或 `ssl`。
+- `8. List Recallable Sent Mail`：列出当前发件人可用于撤回的已发送邮件及其真实 `mail_id`。
+
+### 本地接收文件目录
+
+客户端通过 POP3 接收邮件后，会在 `client_download_root` 配置项指定的目录保存本地副本。默认路径为：
+
+```text
+data/client_downloads/<username>/
+```
+
+其中 `<username>` 会把邮箱地址中的 `@` 转为 `_at_`。例如 Bob 的目录为：
+
+```text
+data/client_downloads/bob_at_example.com/
+```
+
+常见子目录：
+
+- `inbox/`：接收后保存的 `.eml` 原始邮件。
+- `spam/`：客户端判定为垃圾邮件时保存的 `.eml`。
+- `html/`：HTML 邮件正文另存的 `.html` 文件。
+- `attachments/`：邮件附件。
+
 ## 训练垃圾邮件模型
 
 ```bash
@@ -69,7 +103,9 @@ python -m compileall .
 pytest
 ```
 
-端到端测试当前采用函数级最小集成测试；真实 socket 并发测试留给后续完善。
+项目根目录包含 `pytest.ini`，用于确保 pytest 能正确导入 `mailapp`，并把测试临时目录放到 `data/pytest_tmp`，避免 Windows 系统临时目录权限问题。
+
+当前自动化测试包括 MIME、存储、spam、撤回和函数级端到端流程。真实 socket 并发测试可使用 `scripts/concurrency_test.py`。
 
 ## 项目结构说明
 
@@ -160,6 +196,7 @@ mail_client_project/
 - `README.md`：项目说明、运行方式、结构说明和 TODO。
 - `requirements.txt`：项目依赖，包括 `aiosmtpd`、`scikit-learn`、`joblib`、`pyyaml`、`pytest`。
 - `config.yaml`：SMTP/POP3 地址、数据库路径、邮箱根目录、垃圾邮件模型路径、默认用户。
+- `pytest.ini`：pytest 配置，指定测试目录、项目导入路径和项目内临时目录。
 - `run_server.py`：服务器启动入口，调用 `mailapp.server.server_app.start_server()`。
 - `run_client.py`：命令行客户端入口，调用 `mailapp.client.cli.run_cli()`。
 
@@ -220,8 +257,10 @@ mail_client_project/
 ### mailapp/protocols
 
 - `smtp_client.py`：使用 `smtplib` 连接 SMTP Server 并发送 MIME 邮件。
+- `smtp_client.py` 支持 `plain/starttls/ssl` 三种安全模式，支持 HTML、附件和发送回执。
 - `smtp_server.py`：使用 `aiosmtpd` 接收入站邮件，并调用存储层保存。
 - `pop3_client.py`：使用 `poplib` 拉取、列出、删除邮件。
+- `pop3_client.py` 支持 `plain/starttls/ssl` 三种安全模式。
 - `pop3_server.py`：使用 `socketserver` 实现最小 POP3 Server。
 - `ssl_utils.py`：SSL/TLS context 和 socket 包装工具函数。
 
@@ -291,11 +330,13 @@ is_spam(text)
 CLI 菜单包括：
 
 - Send Email
-- Receive Email
+- Receive Email via POP3
 - List Inbox
 - List Spam
 - Read Email
 - Recall Email
+- Show TLS Settings
+- List Recallable Sent Mail
 - Exit
 
 ### mailapp/server
@@ -322,7 +363,24 @@ CLI 菜单包括：
 
 ## SSL/TLS 说明
 
-`mailapp/protocols/ssl_utils.py` 已预留 SSL/TLS context 与 socket 包装函数。默认配置 `use_ssl: false`，后续可增加证书配置并在 SMTP/POP3 服务中启用。
+客户端侧 `smtp_client.py` 与 `pop3_client.py` 支持以下安全模式：
+
+- `plain`：普通明文连接，当前 `config.yaml` 默认配置。
+- `starttls`：先建立普通连接，再升级为 TLS。
+- `ssl`：隐式 SSL/TLS 连接。
+
+相关可选配置示例：
+
+```yaml
+smtp_security: "plain"     # plain / starttls / ssl
+pop3_security: "plain"     # plain / starttls / ssl
+ssl_verify: true
+ssl_cafile: "path/to/ca.pem"
+```
+
+兼容旧配置：如果未配置 `smtp_security` / `pop3_security`，客户端会继续读取 `use_ssl`、`smtp_use_ssl`、`pop3_use_ssl`、`smtp_starttls`、`pop3_starttls` 等字段。
+
+注意：当前服务端仍需进一步配置证书和 TLS 监听后，才能完成真正端到端的 SSL/TLS 演示。
 
 ## SMTP AUTH 说明
 
@@ -337,5 +395,5 @@ SMTP Server 通过 `aiosmtpd` 的 `authenticator` 钩子接入 `mailapp.auth.use
 
 - 为 POP3 Server 补齐更完整的 RFC 1939 行结束、状态机和并发压力测试。
 - 用真实垃圾邮件数据集训练 TF-IDF + Naive Bayes 或 SVM。
-- 增加附件保存后的展示与下载流程。
+- 服务端侧补齐 SSL/TLS 证书配置与 STARTTLS/SSL 监听，配合客户端完成加密传输演示。
 - 增加真实 socket 级端到端测试和并发测试。
