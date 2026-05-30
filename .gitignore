@@ -29,6 +29,8 @@ data/mailboxes/*
 data/models/*
 !data/models/.gitkeep
 
+data/pytest_tmp/
+
 # Database files
 *.db
 *.sqlite

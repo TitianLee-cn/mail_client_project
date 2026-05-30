@@ -1,10 +1,10 @@
-"""Entry point for the command line mail client."""
+"""Entry point for the standalone enhanced command line mail client."""
 
 from mailapp.client.cli import run_cli
 
 
 def main():
-    """Start the interactive CLI."""
+    """Start the enhanced interactive CLI."""
     run_cli()
 
 
