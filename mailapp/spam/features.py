@@ -3,9 +3,14 @@
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-def build_vectorizer():
+def build_vectorizer(max_features=50000, ngram_range=(1, 2)):
     """Create a basic TF-IDF vectorizer."""
-    return TfidfVectorizer(lowercase=True, stop_words="english")
+    return TfidfVectorizer(
+        lowercase=True,
+        stop_words="english",
+        max_features=max_features,
+        ngram_range=ngram_range,
+    )
 
 
 def fit_transform_texts(vectorizer, texts):

@@ -94,7 +94,14 @@ data/client_downloads/bob_at_example.com/
 python -m mailapp.spam.train_spam
 ```
 
-没有真实数据集时会使用 toy dataset 保存 `data/models/spam_model.joblib`。后续可替换为 Enron-Spam Dataset。
+没有真实数据集时会使用 toy dataset 保存 `data/models/spam_model.joblib`。真实实验建议使用 Enron-Spam Dataset 或整理好的 `text,label` CSV：
+
+```bash
+python -m mailapp.spam.train_spam --dataset data/enron_spam --model-type naive_bayes
+python -m mailapp.spam.train_spam --dataset data/spam.csv --model-type svm
+```
+
+训练脚本会输出并保存 Accuracy、分类报告、混淆矩阵和 `data/models/spam_metrics.json`。如果安装了 `matplotlib`，会保存混淆矩阵图片；否则会保存文本版矩阵。
 
 ## 运行测试
 

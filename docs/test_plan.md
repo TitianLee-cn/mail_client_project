@@ -12,6 +12,10 @@
 
 验证关键词 `lottery`、`winner`、`free`、`prize`、`click`、`money`、`urgent`、`win` 可以触发 spam，普通课程文本为 ham。
 
+验证训练脚本可以从 `text,label` CSV 或 ham/spam 目录读取样本，训练 TF-IDF + Naive Bayes/SVM 模型，保存 `spam_model.joblib`，并输出 Accuracy、分类报告、混淆矩阵和 JSON 指标文件。
+
+验证 `is_spam(text)` 在模型文件存在时优先使用模型预测，在模型不存在或加载失败时回退到关键词 fallback。
+
 ## 邮件撤回测试
 
 验证原发件人可以撤回自己的邮件，其他用户不能撤回。撤回后状态为 recalled，收件人 inbox 不再显示原邮件。
