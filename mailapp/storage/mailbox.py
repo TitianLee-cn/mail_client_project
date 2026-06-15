@@ -15,7 +15,18 @@ def _root():
 
 
 def _safe_user_dir(username):
-    return username.replace("@", "_at_").replace("/", "_")
+    return (
+        username.replace("@", "_at_")
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace("..", "_")
+    )
+
+
+def _validate_folder(folder):
+    allowed = {FOLDER_INBOX, FOLDER_SPAM, FOLDER_SENT, FOLDER_RECALLED}
+    if folder not in allowed:
+        raise ValueError(f"Unsupported mailbox folder: {folder}")
 
 
 def ensure_user_mailbox(username):
@@ -26,6 +37,7 @@ def ensure_user_mailbox(username):
 
 def get_user_folder_path(username, folder):
     """Return a user's folder path."""
+    _validate_folder(folder)
     return _root() / _safe_user_dir(username) / folder
 
 
@@ -47,6 +59,11 @@ def move_email_to_folder(username, mail_id, source_folder, target_folder):
         shutil.move(str(src), str(dst))
         return dst
     return None
+
+
+def copy_email_to_folder(username, folder, mail_id, raw_message):
+    """Save another mailbox copy of an existing message."""
+    return save_eml_to_folder(username, folder, mail_id, raw_message)
 
 
 def delete_email_file(username, folder, mail_id):

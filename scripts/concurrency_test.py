@@ -2,11 +2,13 @@ import argparse
 import concurrent.futures
 import smtplib
 import sqlite3
+import ssl
 import time
 import traceback
 from email.message import EmailMessage
 from pathlib import Path
 
+import yaml
 
 SMTP_HOST = "127.0.0.1"
 SMTP_PORT = 2525
@@ -17,7 +19,17 @@ DEFAULT_SENDER = "alice@example.com"
 DEFAULT_RECIPIENT = "bob@example.com"
 
 
-def send_one(index: int, batch_id: str, sender: str, recipient: str, smtp_host: str, smtp_port: int):
+def send_one(
+    index,
+    batch_id,
+    sender,
+    password,
+    recipient,
+    smtp_host,
+    smtp_port,
+    security,
+    cafile,
+):
     """Simulate one SMTP client sending one email."""
     subject = f"concurrency test {batch_id} #{index:03d}"
     body = f"This is concurrent email number {index}."
@@ -30,7 +42,17 @@ def send_one(index: int, batch_id: str, sender: str, recipient: str, smtp_host: 
 
     start = time.perf_counter()
 
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+    context = ssl.create_default_context(cafile=cafile)
+    if security == "ssl":
+        server = smtplib.SMTP_SSL(
+            smtp_host, smtp_port, timeout=15, context=context
+        )
+    else:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+    with server:
+        if security == "starttls":
+            server.starttls(context=context)
+        server.login(sender, password)
         server.send_message(msg)
 
     end = time.perf_counter()
@@ -138,6 +160,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--password",
+        default=None,
+        help="SMTP password; defaults to the matching config.yaml demo user.",
+    )
+
+    parser.add_argument(
         "--smtp-host",
         type=str,
         default=SMTP_HOST,
@@ -156,6 +184,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    config = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
 
     if args.clients is None:
         client_count = ask_client_count(default=10)
@@ -166,6 +195,18 @@ def main():
         raise ValueError("Client count must be greater than 0.")
 
     batch_id = str(int(time.time()))
+    password = args.password or next(
+        (
+            item["password"]
+            for item in config.get("default_users", [])
+            if item["username"] == args.sender
+        ),
+        None,
+    )
+    if not password:
+        raise ValueError("No password supplied for the SMTP sender.")
+    security = str(config.get("smtp_security", "plain")).lower()
+    cafile = config.get("ssl_cafile") or config.get("smtp_ssl_cafile")
 
     print("========== SMTP Concurrency Test ==========")
     print(f"Batch ID       : {batch_id}")
@@ -187,9 +228,12 @@ def main():
                 i,
                 batch_id,
                 args.sender,
+                password,
                 args.recipient,
                 args.smtp_host,
                 args.smtp_port,
+                security,
+                cafile,
             )
             for i in range(1, client_count + 1)
         ]

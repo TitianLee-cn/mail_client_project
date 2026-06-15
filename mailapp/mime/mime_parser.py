@@ -3,6 +3,7 @@
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
+from uuid import uuid4
 
 
 def parse_eml_file(eml_path):
@@ -53,8 +54,11 @@ def extract_attachments(message, output_dir):
     for part in message.walk():
         if part.get_content_disposition() != "attachment":
             continue
-        filename = part.get_filename() or "attachment.bin"
+        filename = Path(part.get_filename() or "attachment.bin").name
+        filename = filename.replace("\x00", "") or "attachment.bin"
         path = output / filename
+        if path.exists():
+            path = output / f"{path.stem}-{uuid4().hex[:8]}{path.suffix}"
         path.write_bytes(part.get_payload(decode=True) or b"")
         saved.append(path)
     return saved

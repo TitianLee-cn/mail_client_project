@@ -1,26 +1,37 @@
 """Spam classifier interface with ML model fallback to keyword rules."""
 
 from pathlib import Path
+from time import time
 
 import joblib
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import LinearSVC
 
 from mailapp.config import get_config
 from mailapp.spam.features import build_vectorizer, fit_transform_texts, transform_texts
 
 SPAM_KEYWORDS = {"lottery", "winner", "free", "prize", "click", "money", "urgent", "win"}
+_MODEL_CACHE = {"path": None, "mtime": None, "bundle": None}
 
 
 def train_classifier(texts, labels, model_type="naive_bayes"):
     """Train a spam classifier and return a model bundle."""
     vectorizer = build_vectorizer()
     features = fit_transform_texts(vectorizer, texts)
-    if model_type != "naive_bayes":
-        # TODO: add SVM model selection.
-        model_type = "naive_bayes"
-    classifier = MultinomialNB()
+    if model_type == "svm":
+        classifier = LinearSVC()
+    elif model_type == "naive_bayes":
+        classifier = MultinomialNB()
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
     classifier.fit(features, labels)
-    return {"vectorizer": vectorizer, "classifier": classifier, "model_type": model_type}
+    return {
+        "vectorizer": vectorizer,
+        "classifier": classifier,
+        "model_type": model_type,
+        "trained_at": time(),
+        "training_samples": len(texts),
+    }
 
 
 def _model_path():
@@ -49,11 +60,20 @@ def save_model(model_bundle, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model_bundle, path)
+    _MODEL_CACHE.update(path=None, mtime=None, bundle=None)
 
 
 def load_model(path):
     """Load a trained model bundle."""
-    return joblib.load(Path(path))
+    path = Path(path)
+    mtime = path.stat().st_mtime_ns
+    if _MODEL_CACHE["path"] == path and _MODEL_CACHE["mtime"] == mtime:
+        return _MODEL_CACHE["bundle"]
+    bundle = joblib.load(path)
+    if not {"vectorizer", "classifier"}.issubset(bundle):
+        raise ValueError("Invalid spam model bundle")
+    _MODEL_CACHE.update(path=path, mtime=mtime, bundle=bundle)
+    return bundle
 
 
 def keyword_spam_check(text):
@@ -68,7 +88,21 @@ def is_spam(text):
     if path.exists():
         try:
             return bool(predict_spam(text))
-        except Exception:
-            # TODO: log model errors and expose a health check.
+        except (OSError, ValueError, KeyError):
             return keyword_spam_check(text)
     return keyword_spam_check(text)
+
+
+def model_status():
+    """Return model availability and metadata for the CLI/report."""
+    path = _model_path()
+    if not path.exists():
+        return {"available": False, "path": str(path), "mode": "keyword-fallback"}
+    bundle = load_model(path)
+    return {
+        "available": True,
+        "path": str(path),
+        "mode": bundle.get("model_type", "unknown"),
+        "training_samples": bundle.get("training_samples"),
+        "trained_at": bundle.get("trained_at"),
+    }

@@ -6,7 +6,6 @@ attachments, local .eml downloads, attachment extraction, and SSL-aware POP3.
 """
 
 from pathlib import Path
-from uuid import uuid4
 
 from mailapp.config import get_config
 from mailapp.mime.mime_parser import (
@@ -14,15 +13,20 @@ from mailapp.mime.mime_parser import (
     extract_headers,
     parse_eml_bytes,
 )
-from mailapp.protocols.pop3_client import fetch_all_messages
+from mailapp.auth.user_store import require_user
+from mailapp.common.exceptions import AuthenticationError
+from mailapp.protocols.pop3_client import fetch_all_message_records
 from mailapp.protocols.smtp_client import build_outgoing_email, send_email_receipt
-from mailapp.recall.recall_service import request_recall
+from mailapp.recall.recall_service import list_recall_notifications, request_recall
 from mailapp.spam.classifier import is_spam
 from mailapp.storage.mail_store import (
     get_email_by_mail_id,
     get_email_raw_content,
     list_sent_emails,
+    list_user_emails,
+    mark_email_as_spam,
     mark_email_as_read,
+    user_can_access_email,
 )
 
 
@@ -87,10 +91,13 @@ def send_email_workflow(sender, password, recipients, subject, body, attachments
     return send_email_receipt(sender, password, recipients, subject, body, attachments=attachments, html=html)
 
 
-def list_recallable_sent_emails(username):
+def list_recallable_sent_emails(username, password):
     """List sent messages with the server-generated mail_id used for recall."""
+    require_user(username, password)
     rows = []
     for row in list_sent_emails(username):
+        if row["status"] == "recalled":
+            continue
         rows.append(
             {
                 "mail_id": row["mail_id"],
@@ -104,37 +111,41 @@ def list_recallable_sent_emails(username):
     return rows
 
 
-def recall_email_workflow(username, mail_id):
+def recall_email_workflow(username, password, mail_id):
     """Recall a message by the server-generated mail_id."""
-    return request_recall(username, mail_id)
+    return request_recall(username, password, mail_id)
 
 
-def _save_downloaded_eml(username, raw, headers, spam):
+def _save_downloaded_eml(username, raw, mail_id, spam):
     folder = "spam" if spam else "inbox"
     download_dir = user_download_dir(username, folder)
-    mail_id = headers.get("mail_id") or uuid4().hex
     filename = f"{mail_id}.eml"
     path = download_dir / filename
-    suffix = 1
-    while path.exists():
-        path = download_dir / f"{mail_id}-{suffix}.eml"
-        suffix += 1
     path.write_bytes(raw)
     return path
 
 
 def receive_email_workflow(username, password, save_local=True):
     """Fetch POP3 messages, classify them, and optionally save .eml locally."""
-    raw_messages = fetch_all_messages(username, password)
+    records = fetch_all_message_records(username, password)
     summaries = []
-    for index, raw in enumerate(raw_messages, start=1):
+    for record in records:
+        index = record["index"]
+        raw = record["raw"]
+        server_mail_id = record["mail_id"]
         msg = parse_eml_bytes(raw)
         headers = extract_headers(msg)
         spam_body, _spam_body_type = _body_content(msg, prefer_html=False)
         display_body, body_type = _body_content(msg, prefer_html=True)
         spam = is_spam(f"{headers['subject']}\n{spam_body}")
-        saved_path = _save_downloaded_eml(username, raw, headers, spam) if save_local else None
-        local_id = _safe_name(headers.get("mail_id") or headers.get("message_id") or f"pop3-{index}")
+        if spam:
+            mark_email_as_spam(server_mail_id, username)
+        saved_path = (
+            _save_downloaded_eml(username, raw, server_mail_id, spam)
+            if save_local
+            else None
+        )
+        local_id = _safe_name(server_mail_id)
         attachment_paths = [str(path) for path in extract_attachments(msg, user_download_dir(username, "attachments") / local_id)]
         html_path = _save_html_body(username, local_id, display_body) if body_type == "html" else None
         summaries.append(
@@ -142,7 +153,8 @@ def receive_email_workflow(username, password, save_local=True):
                 "index": index,
                 "subject": headers["subject"],
                 "sender": headers["sender"],
-                "mail_id": headers["mail_id"],
+                "mail_id": server_mail_id,
+                "client_mail_id": headers["mail_id"],
                 "message_id": headers["message_id"],
                 "is_spam": spam,
                 "body_type": body_type,
@@ -161,16 +173,18 @@ def _extract_display_attachments(message, username, mail_id):
     return [str(path) for path in extract_attachments(message, output_dir)]
 
 
-def display_email(mail_id, username=None, save_attachments=True):
+def display_email(mail_id, username, password, save_attachments=True):
     """Return readable display fields for one stored email.
 
     HTML bodies and attachments are extracted during POP3 receive. Reading a
     message should not create another local copy of those files.
     """
+    require_user(username, password)
+    if not user_can_access_email(username, mail_id):
+        raise AuthenticationError("This user cannot access the requested email")
     email = get_email_by_mail_id(mail_id)
     if email["status"] == "recalled":
-        if username:
-            mark_email_as_read(mail_id, username)
+        mark_email_as_read(mail_id, username)
         return {
             "mail_id": mail_id,
             "status": "recalled",
@@ -180,8 +194,7 @@ def display_email(mail_id, username=None, save_attachments=True):
         }
 
     msg = parse_eml_bytes(get_email_raw_content(mail_id))
-    if username:
-        mark_email_as_read(mail_id, username)
+    mark_email_as_read(mail_id, username)
 
     headers = extract_headers(msg)
     body, body_type = _body_content(msg, prefer_html=True)
@@ -194,3 +207,15 @@ def display_email(mail_id, username=None, save_attachments=True):
         "attachments": [],
         "html_path": "",
     }
+
+
+def list_mailbox_authenticated(username, password, folder):
+    """List one mailbox folder after validating credentials."""
+    require_user(username, password)
+    return list_user_emails(username, folder)
+
+
+def list_recall_notifications_authenticated(username, password):
+    """List recall notifications after validating recipient credentials."""
+    require_user(username, password)
+    return list_recall_notifications(username)

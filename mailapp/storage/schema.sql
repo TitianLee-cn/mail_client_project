@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS recipients (
     folder TEXT NOT NULL,
     read_status INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(mail_id) REFERENCES emails(mail_id)
 );
 
@@ -35,3 +36,18 @@ CREATE TABLE IF NOT EXISTS mail_status (
     recall_reason TEXT,
     FOREIGN KEY(mail_id) REFERENCES emails(mail_id)
 );
+
+CREATE TABLE IF NOT EXISTS recall_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mail_id TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(mail_id) REFERENCES emails(mail_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipients_user_folder
+ON recipients(recipient, folder, deleted);
+
+CREATE INDEX IF NOT EXISTS idx_emails_sender
+ON emails(sender, created_at);

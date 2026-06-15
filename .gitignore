@@ -28,6 +28,11 @@ data/mailboxes/*
 
 data/models/*
 !data/models/.gitkeep
+!data/models/spam_model.joblib
+!data/models/spam_metrics.json
+
+data/datasets/
+data/client_downloads/
 
 data/pytest_tmp/
 
@@ -40,3 +45,4 @@ data/pytest_tmp/
 .env
 .env.*
 config.local.yaml
+certs/*.pem

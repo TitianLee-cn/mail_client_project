@@ -7,6 +7,7 @@ from mailapp.common.logger import get_logger
 from mailapp.config import get_config, load_config
 from mailapp.protocols.pop3_server import start_pop3_server, stop_pop3_server
 from mailapp.protocols.smtp_server import start_smtp_server, stop_smtp_server
+from mailapp.protocols.ssl_utils import create_server_ssl_context
 from mailapp.storage.db import init_database
 
 logger = get_logger(__name__)
@@ -23,8 +24,29 @@ def init_services():
 def start_all_services():
     """Start SMTP and POP3 services."""
     config = get_config()
-    smtp = start_smtp_server(config["smtp_host"], config["smtp_port"])
-    pop3 = start_pop3_server(config["pop3_host"], config["pop3_port"])
+    certfile = config.get("tls_certfile")
+    keyfile = config.get("tls_keyfile")
+    tls_context = (
+        create_server_ssl_context(certfile, keyfile)
+        if certfile and keyfile
+        else None
+    )
+    smtp_mode = str(config.get("smtp_security", "plain")).lower()
+    pop3_mode = str(config.get("pop3_security", "plain")).lower()
+    smtp = start_smtp_server(
+        config["smtp_host"],
+        config["smtp_port"],
+        tls_context=tls_context,
+        implicit_tls=smtp_mode == "ssl",
+        require_starttls=smtp_mode == "starttls",
+    )
+    pop3 = start_pop3_server(
+        config["pop3_host"],
+        config["pop3_port"],
+        ssl_context=tls_context,
+        implicit_tls=pop3_mode == "ssl",
+        require_tls_for_auth=config.get("pop3_auth_require_tls", True),
+    )
     return {"smtp": smtp, "pop3": pop3}
 
 

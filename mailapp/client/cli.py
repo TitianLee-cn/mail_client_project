@@ -5,6 +5,8 @@ from pathlib import Path
 
 from mailapp.client.client_core import (
     display_email,
+    list_mailbox_authenticated,
+    list_recall_notifications_authenticated,
     list_recallable_sent_emails,
     receive_email_workflow,
     recall_email_workflow,
@@ -15,8 +17,8 @@ from mailapp.common.exceptions import AuthenticationError, MailNotFoundError, Re
 from mailapp.config import load_config
 from mailapp.protocols.pop3_client import describe_security as describe_pop3_security
 from mailapp.protocols.smtp_client import describe_security as describe_smtp_security
+from mailapp.spam.classifier import model_status
 from mailapp.storage.db import init_database
-from mailapp.storage.mail_store import list_user_emails
 
 
 def show_menu():
@@ -29,6 +31,8 @@ def show_menu():
     print("6. Recall Email")
     print("7. Show TLS Settings")
     print("8. List Recallable Sent Mail")
+    print("9. List Recall Notifications")
+    print("10. Show Spam Model Status")
     print("0. Exit")
 
 
@@ -124,8 +128,8 @@ def handle_receive_email():
 
 
 def _list_folder(folder):
-    username = input("Username: ").strip()
-    rows = list_user_emails(username, folder)
+    username, password = _credentials()
+    rows = list_mailbox_authenticated(username, password, folder)
     if not rows:
         print(f"No messages in {folder}.")
         return
@@ -143,10 +147,10 @@ def handle_list_spam():
 
 
 def handle_read_email():
-    username = input("Username: ").strip()
+    username, password = _credentials()
     mail_ref = input("mail_id or inbox number: ").strip()
-    mail_id = _resolve_mail_reference(username, mail_ref)
-    data = display_email(mail_id, username, save_attachments=True)
+    mail_id = _resolve_mail_reference(username, password, mail_ref)
+    data = display_email(mail_id, username, password, save_attachments=True)
     print(f"mail_id: {data['mail_id']}")
     print(f"status: {data['status']}")
     print(f"body_type: {data['body_type']}")
@@ -171,7 +175,7 @@ def handle_read_email():
             print(path)
 
 
-def _resolve_mail_reference(username, mail_ref):
+def _resolve_mail_reference(username, password, mail_ref):
     """Resolve a server mail_id or a 1-based inbox number such as 01/001."""
     if not mail_ref:
         raise ValueError("Please enter a mail_id or inbox number.")
@@ -182,16 +186,16 @@ def _resolve_mail_reference(username, mail_ref):
     if index <= 0:
         raise ValueError("Inbox number starts from 1.")
 
-    rows = list_user_emails(username, FOLDER_INBOX)
+    rows = list_mailbox_authenticated(username, password, FOLDER_INBOX)
     if index > len(rows):
         raise ValueError(f"Inbox number {mail_ref} is out of range. Current inbox has {len(rows)} message(s).")
     return rows[index - 1]["mail_id"]
 
 
 def handle_recall_email():
-    username = input("Sender username: ").strip()
+    username, password = _credentials()
     mail_id = input("server mail_id to recall: ").strip()
-    result = recall_email_workflow(username, mail_id)
+    result = recall_email_workflow(username, password, mail_id)
     print(result)
 
 
@@ -206,8 +210,8 @@ def handle_show_tls_settings():
 
 
 def handle_list_recallable_sent_mail():
-    username = input("Sender username: ").strip()
-    rows = list_recallable_sent_emails(username)
+    username, password = _credentials()
+    rows = list_recallable_sent_emails(username, password)
     if not rows:
         print("No sent mail found for this sender.")
         return
@@ -217,6 +221,24 @@ def handle_list_recallable_sent_mail():
             f"{row['mail_id']} | status={row['status']} | "
             f"spam={row['is_spam']} | {row['created_at']} | {row['subject']}"
         )
+
+
+def handle_list_recall_notifications():
+    username, password = _credentials()
+    rows = list_recall_notifications_authenticated(username, password)
+    if not rows:
+        print("No recall notifications.")
+        return
+    for row in rows:
+        print(f"{row['created_at']} | {row['mail_id']} | {row['message']}")
+
+
+def handle_show_spam_model_status():
+    status = model_status()
+    print(
+        f"mode={status['mode']} | available={status['available']} | "
+        f"path={status['path']} | samples={status.get('training_samples', '-')}"
+    )
 
 
 def handle_exit():
@@ -237,6 +259,8 @@ def run_cli():
         "6": handle_recall_email,
         "7": handle_show_tls_settings,
         "8": handle_list_recallable_sent_mail,
+        "9": handle_list_recall_notifications,
+        "10": handle_show_spam_model_status,
         "0": handle_exit,
     }
     running = True

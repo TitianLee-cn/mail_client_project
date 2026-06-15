@@ -4,6 +4,7 @@ import poplib
 import ssl
 
 from mailapp.config import get_config
+from mailapp.protocols.ssl_utils import create_client_ssl_context
 
 SECURITY_PLAIN = "plain"
 SECURITY_STARTTLS = "starttls"
@@ -27,7 +28,12 @@ def _security_mode(config, use_ssl=None, starttls=None):
 
     raw_mode = str(config.get("pop3_security", "")).strip().lower()
     if raw_mode:
-        aliases = {"none": SECURITY_PLAIN, "tls": SECURITY_SSL, "ssl_tls": SECURITY_SSL, "stls": SECURITY_STARTTLS}
+        aliases = {
+            "none": SECURITY_PLAIN,
+            "tls": SECURITY_STARTTLS,
+            "ssl_tls": SECURITY_SSL,
+            "stls": SECURITY_STARTTLS,
+        }
         mode = aliases.get(raw_mode, raw_mode)
         if mode not in VALID_SECURITY_MODES:
             raise ValueError(f"Unsupported pop3_security mode: {raw_mode}")
@@ -42,12 +48,7 @@ def _security_mode(config, use_ssl=None, starttls=None):
 def _client_ssl_context(config):
     cafile = config.get("ssl_cafile") or config.get("pop3_ssl_cafile")
     verify = bool(config.get("pop3_ssl_verify", config.get("ssl_verify", True)))
-    if verify:
-        return ssl.create_default_context(cafile=cafile)
-    context = ssl._create_unverified_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
+    return create_client_ssl_context(cafile=cafile, verify=verify)
 
 
 def describe_security():
@@ -130,6 +131,31 @@ def fetch_all_messages(username, password):
         for index in range(1, count + 1):
             _resp, lines, _octets = client.retr(index)
             messages.append(b"\n".join(lines))
+        return messages
+    finally:
+        client.quit()
+
+
+def fetch_all_message_records(username, password):
+    """Fetch POP3 messages together with RFC 1939 UIDL server identifiers."""
+    client = connect_pop3_server(username, password)
+    try:
+        count, _size = client.stat()
+        uid_rows = client.uidl()[1]
+        uid_by_number = {}
+        for row in uid_rows:
+            number, uid = row.decode("ascii").split(maxsplit=1)
+            uid_by_number[int(number)] = uid
+        messages = []
+        for index in range(1, count + 1):
+            _resp, lines, _octets = client.retr(index)
+            messages.append(
+                {
+                    "index": index,
+                    "mail_id": uid_by_number[index],
+                    "raw": b"\r\n".join(lines) + b"\r\n",
+                }
+            )
         return messages
     finally:
         client.quit()

@@ -9,6 +9,7 @@ from pathlib import Path
 from mailapp.common.exceptions import AuthenticationError
 from mailapp.config import get_config
 from mailapp.mime.mime_builder import build_html_email, build_text_email
+from mailapp.protocols.ssl_utils import create_client_ssl_context
 from mailapp.storage.db import fetch_one
 
 SECURITY_PLAIN = "plain"
@@ -33,7 +34,11 @@ def _security_mode(config, use_ssl=None, starttls=None):
 
     raw_mode = str(config.get("smtp_security", "")).strip().lower()
     if raw_mode:
-        aliases = {"none": SECURITY_PLAIN, "tls": SECURITY_SSL, "ssl_tls": SECURITY_SSL}
+        aliases = {
+            "none": SECURITY_PLAIN,
+            "tls": SECURITY_STARTTLS,
+            "ssl_tls": SECURITY_SSL,
+        }
         mode = aliases.get(raw_mode, raw_mode)
         if mode not in VALID_SECURITY_MODES:
             raise ValueError(f"Unsupported smtp_security mode: {raw_mode}")
@@ -48,12 +53,7 @@ def _security_mode(config, use_ssl=None, starttls=None):
 def _client_ssl_context(config):
     cafile = config.get("ssl_cafile") or config.get("smtp_ssl_cafile")
     verify = bool(config.get("smtp_ssl_verify", config.get("ssl_verify", True)))
-    if verify:
-        return ssl.create_default_context(cafile=cafile)
-    context = ssl._create_unverified_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
+    return create_client_ssl_context(cafile=cafile, verify=verify)
 
 
 def describe_security():
@@ -97,6 +97,8 @@ def login_smtp(server, username, password):
     """Perform SMTP AUTH when the server advertises it."""
     server.ehlo_or_helo_if_needed()
     if not server.has_extn("auth"):
+        if get_config().get("smtp_auth_required", True):
+            raise AuthenticationError("SMTP server does not advertise AUTH")
         return False
     try:
         server.login(username, password)

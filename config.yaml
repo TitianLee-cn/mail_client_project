@@ -1,13 +1,22 @@
 smtp_host: "127.0.0.1"
 smtp_port: 2525
 smtp_auth_required: true
-smtp_auth_require_tls: false
+smtp_auth_require_tls: true
+smtp_security: "starttls"
+smtp_require_starttls: true
 pop3_host: "127.0.0.1"
 pop3_port: 1110
-use_ssl: false
+pop3_security: "starttls"
+pop3_auth_require_tls: true
+tls_certfile: "certs/mailapp-cert.pem"
+tls_keyfile: "certs/mailapp-key.pem"
+ssl_cafile: "certs/mailapp-cert.pem"
+ssl_verify: true
 database_path: "data/email.db"
 mailbox_root: "data/mailboxes"
+client_download_root: "data/client_downloads"
 spam_model_path: "data/models/spam_model.joblib"
+spam_report_path: "data/models/spam_metrics.json"
 default_users:
   - username: "alice@example.com"
     password: "alice123"

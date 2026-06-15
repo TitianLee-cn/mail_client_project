@@ -62,7 +62,16 @@ def process_incoming_message(sender, recipients, raw_message):
     return store_incoming_email(sender, recipients, raw_message)
 
 
-def start_smtp_server(host, port, *, auth_required=None, auth_require_tls=None):
+def start_smtp_server(
+    host,
+    port,
+    *,
+    auth_required=None,
+    auth_require_tls=None,
+    tls_context=None,
+    require_starttls=None,
+    implicit_tls=False,
+):
     """Start SMTP server and return its controller.
 
     AUTH defaults follow ``config.yaml``:
@@ -76,14 +85,22 @@ def start_smtp_server(host, port, *, auth_required=None, auth_require_tls=None):
         auth_required = config.get("smtp_auth_required", True)
     if auth_require_tls is None:
         auth_require_tls = config.get("smtp_auth_require_tls", False)
-    controller = Controller(
-        SMTPHandler(),
-        hostname=host,
-        port=port,
-        authenticator=smtp_authenticator,
-        auth_required=auth_required,
-        auth_require_tls=auth_require_tls,
-    )
+    if require_starttls is None:
+        require_starttls = config.get("smtp_require_starttls", False)
+    if implicit_tls and tls_context is None:
+        raise ValueError("SMTP implicit TLS requires an SSL context")
+    kwargs = {
+        "authenticator": smtp_authenticator,
+        "auth_required": auth_required,
+        "auth_require_tls": auth_require_tls,
+        "require_starttls": require_starttls,
+        "enable_SMTPUTF8": True,
+    }
+    if implicit_tls:
+        kwargs["ssl_context"] = tls_context
+    else:
+        kwargs["tls_context"] = tls_context
+    controller = Controller(SMTPHandler(), hostname=host, port=port, **kwargs)
     controller.start()
     return controller
 

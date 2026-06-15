@@ -1,10 +1,13 @@
 """User storage and password verification."""
 
 import hashlib
+import re
 
 from mailapp.common.exceptions import AuthenticationError
 from mailapp.storage.db import execute_query, fetch_all, fetch_one
 from mailapp.storage.mailbox import ensure_user_mailbox
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _hash_password(password):
@@ -22,6 +25,18 @@ def create_user(username, password):
     )
     ensure_user_mailbox(username)
     return dict(get_user(username))
+
+
+def register_user(username, password):
+    """Validate and create a new account, rejecting duplicate usernames."""
+    username = (username or "").strip().lower()
+    if not EMAIL_PATTERN.fullmatch(username):
+        raise AuthenticationError("Username must be a valid email address")
+    if len(password or "") < 6:
+        raise AuthenticationError("Password must contain at least 6 characters")
+    if get_user(username):
+        raise AuthenticationError(f"Account already exists: {username}")
+    return create_user(username, password)
 
 
 def verify_user(username, password):

@@ -38,6 +38,12 @@ def init_database():
     conn = get_connection()
     try:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(recipients)")}
+        if "received_at" not in columns:
+            conn.execute("ALTER TABLE recipients ADD COLUMN received_at TEXT")
+            conn.execute(
+                "UPDATE recipients SET received_at = CURRENT_TIMESTAMP WHERE received_at IS NULL"
+            )
         conn.commit()
     finally:
         conn.close()
@@ -50,6 +56,21 @@ def execute_query(sql, params=None):
         cur = conn.execute(sql, params or ())
         conn.commit()
         return cur
+    finally:
+        conn.close()
+
+
+def execute_transaction(callback):
+    """Run callback(conn) in one SQLite transaction and return its result."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        result = callback(conn)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
