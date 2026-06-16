@@ -29,6 +29,32 @@ from mailapp.storage.db import init_database
 
 
 APP_TITLE = "MailApp Desktop Demo"
+SPAM_SUBJECT_PREFIX = "[SPAM] "
+SPAM_ROW_TAG = "spam"
+
+
+def format_mailbox_subject(subject, is_spam):
+    """Prefix spam subjects for mailbox display."""
+    value = subject or "(no subject)"
+    if is_spam and not value.startswith(SPAM_SUBJECT_PREFIX):
+        return f"{SPAM_SUBJECT_PREFIX}{value}"
+    return value
+
+
+def mailbox_display_row(row, folder):
+    """Return Treeview values and tags for one mailbox row."""
+    spam = bool(row["is_spam"]) or folder == FOLDER_SPAM
+    status = "spam" if spam else row["status"]
+    return (
+        (
+            format_mailbox_subject(row["subject"], spam),
+            row["sender"],
+            status,
+            row["created_at"],
+            row["mail_id"],
+        ),
+        (SPAM_ROW_TAG,) if spam else (),
+    )
 
 
 def parse_recipients(value):
@@ -222,6 +248,12 @@ class MailDesktopApp:
 
         columns = ("subject", "sender", "status", "time", "mail_id")
         tree = ttk.Treeview(tab, columns=columns, show="headings", selectmode="browse")
+        tree.tag_configure(
+            SPAM_ROW_TAG,
+            foreground="#8a1f11",
+            background="#ffe1dc",
+            font=("TkDefaultFont", 10, "bold"),
+        )
         headings = {
             "subject": ("Subject", 280),
             "sender": ("Sender", 190),
@@ -445,7 +477,15 @@ class MailDesktopApp:
         self.status.set("Logged out")
 
     def choose_attachments(self):
-        paths = filedialog.askopenfilenames(title="Choose attachments", parent=self.root)
+        try:
+            if not self.root.winfo_exists():
+                return
+            paths = filedialog.askopenfilenames(
+                title="Choose attachments", parent=self.root
+            )
+        except tk.TclError as exc:
+            self.status.set(f"Attachment chooser unavailable: {exc}")
+            return
         if paths:
             self.attachments = list(paths)
             self.attachment_label.configure(
@@ -557,19 +597,7 @@ class MailDesktopApp:
         tree = self.inbox_tree if folder == FOLDER_INBOX else self.spam_tree
 
         def success(rows):
-            self._replace_tree(
-                tree,
-                [
-                    (
-                        row["subject"],
-                        row["sender"],
-                        row["status"],
-                        row["created_at"],
-                        row["mail_id"],
-                    )
-                    for row in rows
-                ],
-            )
+            self._replace_tree(tree, [mailbox_display_row(row, folder) for row in rows])
             self.status.set(f"{folder.title()}: {len(rows)} message(s)")
 
         self._run_task(
@@ -720,7 +748,15 @@ class MailDesktopApp:
     def _replace_tree(tree, rows):
         tree.delete(*tree.get_children())
         for row in rows:
-            tree.insert("", "end", values=row)
+            tags = ()
+            values = row
+            if (
+                isinstance(row, tuple)
+                and len(row) == 2
+                and isinstance(row[1], tuple)
+            ):
+                values, tags = row
+            tree.insert("", "end", values=values, tags=tags)
 
 
 def run_gui():

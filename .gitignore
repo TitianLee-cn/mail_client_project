@@ -45,4 +45,8 @@ data/pytest_tmp/
 .env
 .env.*
 config.local.yaml
+config.good.yaml
 certs/*.pem
+
+# Generated document exports
+docs/*.pdf
